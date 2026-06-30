@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -16,6 +17,7 @@ import (
 var (
 	token   = "change-this-token"
 	dataDir = "./data"
+	port    = "8080"
 )
 
 func initJsonOpen() {
@@ -34,6 +36,7 @@ func initJsonOpen() {
     }
 
     token = config["token"]
+	port = config["port"]
 }
 
 func main() {
@@ -47,7 +50,9 @@ func main() {
 
 	r.POST("/api/metrics", saveMetrics)
 
-	r.Run(":8080")
+	r.Run(":" + port)
+
+	fmt.Println("Run in :" + port)
 }
 
 func saveMetrics(c *gin.Context) {

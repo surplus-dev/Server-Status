@@ -3,3 +3,5 @@ client/go.sum
 
 server/set.json
 client/set.json
+
+server/data

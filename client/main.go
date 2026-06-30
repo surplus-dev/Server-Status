@@ -42,7 +42,7 @@ func initJsonOpen() {
 
     statusURL = config["statusURL"]
     serverID = config["serverID"]
-    apiToken = config["apiToken"]
+    apiToken = config["token"]
 }
 
 func main() {
@@ -80,7 +80,6 @@ func sendMetrics() error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiToken)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -109,6 +108,7 @@ func collectMetrics() (map[string]any, error) {
 	hostname, _ := os.Hostname()
 
 	metrics := map[string]any{
+		"token":           apiToken,
 		"server_id":       serverID,
 		"hostname":        hostname,
 		"timestamp":       time.Now().UTC().Format(time.RFC3339),
