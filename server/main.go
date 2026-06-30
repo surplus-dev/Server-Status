@@ -113,8 +113,14 @@ func showStatus(c *gin.Context) {
 		<html>
 		<head>
 			<meta charset="UTF-8">
-			<meta http-equiv="refresh" content="30">
+			<meta http-equiv="refresh" content="180">
 			<title>Server Status</title>
+			<style>
+				body {
+					background-color: black;
+					filter: invert(1);
+				}
+			</style>
 		</head>
 		<body>
 			<h1>Server Status</h1>
