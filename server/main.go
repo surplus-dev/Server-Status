@@ -148,10 +148,38 @@ func showStatus(c *gin.Context) {
 		}
 
 		cpu := gjson.GetBytes(body, "cpu_percent").Float()
-		memory := gjson.GetBytes(body, "memory_percent").Float()
+		// memory := gjson.GetBytes(body, "memory_percent").Float()
 		gpu := gjson.GetBytes(body, "gpus.0.util_percent").Float()
 		temp := gjson.GetBytes(body, "gpus.0.temperature_c").Float()
 		receivedAt := gjson.GetBytes(body, "received_at").String()
+
+		vramUsed := gjson.GetBytes(body, "gpus.0.memory_used_mb").Float()
+		vramTotal := gjson.GetBytes(body, "gpus.0.memory_total_mb").Float()
+
+		memoryPercent := gjson.GetBytes(body, "memory_percent").Float()
+		memoryUsed := gjson.GetBytes(body, "memory_used_mb").Float()
+		memoryTotal := gjson.GetBytes(body, "memory_total_mb").Float()
+
+		memoryText := fmt.Sprintf("%.1f%%", memoryPercent)
+
+		if memoryTotal > 0 {
+				memoryText = fmt.Sprintf(
+						"%.1f / %.1f GB (%.1f%%)",
+						memoryUsed/1024,
+						memoryTotal/1024,
+						memoryPercent,
+				)
+		}
+
+		vramText := "N/A"
+		if vramTotal > 0 {
+				vramText = fmt.Sprintf(
+						"%.1f / %.1f GB (%.1f%%)",
+						vramUsed/1024,
+						vramTotal/1024,
+						vramUsed/vramTotal*100,
+				)
+		}
 
 		status := "OFFLINE"
 
@@ -168,16 +196,18 @@ func showStatus(c *gin.Context) {
 			<h2>%s</h2>
 			<p>%s</p>
 			<p>CPU: %.1f%%</p>
-			<p>RAM: %.1f%%</p>
+			<p>RAM: %s</p>
 			<p>GPU: %.1f%%</p>
+        	<p>VRAM: %s</p>
 			<p>GPU 온도: %.1f°C</p>
 			<p>마지막 수신: %s</p>
 			`,
 			serverID,
 			status,
 			cpu,
-			memory,
+			memoryText,
 			gpu,
+        	vramText,
 			temp,
 			receivedAt,
 		)
