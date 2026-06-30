@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -44,10 +45,7 @@ func main() {
 
 	r := gin.Default()
 
-	r.GET("/", func(c *gin.Context) {
-		c.String(http.StatusOK, "status server running")
-	})
-
+	r.GET("/", showStatus)
 	r.POST("/api/metrics", saveMetrics)
 
 	r.Run(":" + port)
@@ -104,4 +102,114 @@ func saveMetrics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func showStatus(c *gin.Context) {
+	serverDirs, _ := os.ReadDir(dataDir)
+
+	var html strings.Builder
+
+	html.WriteString(`
+		<html>
+		<head>
+			<meta charset="UTF-8">
+			<meta http-equiv="refresh" content="30">
+			<title>Server Status</title>
+		</head>
+		<body>
+			<h1>Server Status</h1>
+	`)
+
+	for _, serverDir := range serverDirs {
+		if !serverDir.IsDir() {
+			continue
+		}
+
+		serverID := serverDir.Name()
+
+		filename := latestFile(
+			filepath.Join(dataDir, serverID),
+		)
+
+		if filename == "" {
+			continue
+		}
+
+		body, err := os.ReadFile(filename)
+		if err != nil {
+			continue
+		}
+
+		cpu := gjson.GetBytes(body, "cpu_percent").Float()
+		memory := gjson.GetBytes(body, "memory_percent").Float()
+		gpu := gjson.GetBytes(body, "gpus.0.util_percent").Float()
+		temp := gjson.GetBytes(body, "gpus.0.temperature_c").Float()
+		receivedAt := gjson.GetBytes(body, "received_at").String()
+
+		status := "OFFLINE"
+
+		if receivedTime, err := time.Parse(time.RFC3339, receivedAt); err == nil {
+			if time.Since(receivedTime) < 10*time.Minute {
+				status = "ONLINE"
+			}
+		}
+
+		fmt.Fprintf(
+			&html,
+			`
+			<hr>
+			<h2>%s</h2>
+			<p>%s</p>
+			<p>CPU: %.1f%%</p>
+			<p>RAM: %.1f%%</p>
+			<p>GPU: %.1f%%</p>
+			<p>GPU 온도: %.1f°C</p>
+			<p>마지막 수신: %s</p>
+			`,
+			serverID,
+			status,
+			cpu,
+			memory,
+			gpu,
+			temp,
+			receivedAt,
+		)
+	}
+
+	html.WriteString(`
+		</body>
+		</html>
+	`)
+
+	c.Data(
+		http.StatusOK,
+		"text/html; charset=utf-8",
+		[]byte(html.String()),
+	)
+}
+
+func latestFile(serverDir string) string {
+	dateDirs, err := os.ReadDir(serverDir)
+	if err != nil || len(dateDirs) == 0 {
+		return ""
+	}
+
+	// 날짜 폴더 이름이 YYYY-MM-DD이므로 마지막 폴더가 최신
+	latestDateDir := dateDirs[len(dateDirs)-1]
+
+	files, err := os.ReadDir(
+		filepath.Join(serverDir, latestDateDir.Name()),
+	)
+	if err != nil || len(files) == 0 {
+		return ""
+	}
+
+	// 파일 이름이 시각이므로 마지막 파일이 최신
+	latest := files[len(files)-1]
+
+	return filepath.Join(
+		serverDir,
+		latestDateDir.Name(),
+		latest.Name(),
+	)
 }
