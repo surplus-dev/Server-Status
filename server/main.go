@@ -84,6 +84,20 @@ func main() {
 	}
 }
 
+func normalizeGraphForMobile(s string) string {
+	replacer := strings.NewReplacer(
+		"╭", "+",
+		"╮", "+",
+		"╰", "+",
+		"╯", "+",
+		"─", "-",
+		"│", "|",
+		"┤", "|",
+		"┼", "+",
+	)
+	return replacer.Replace(s)
+}
+
 func saveMetrics(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 
@@ -164,8 +178,9 @@ func showStatus(c *gin.Context) {
 					font-family: Consolas, "Courier New", monospace;
 					font-size: 13px;
 					line-height: 1.1;
-					white-space: pre;
 					margin: 8px 0 16px 0;
+					overflow-x: auto;
+					white-space: pre;
 				}
 
 				summary {
@@ -529,6 +544,7 @@ func makeAsciiGraph(title string, values []float64, minVal float64, maxVal float
 		asciigraph.UpperBound(maxVal),
 		asciigraph.Precision(1),
 	)
+	graph = normalizeGraphForMobile(graph)
 
 	return graph
 }
