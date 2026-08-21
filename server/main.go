@@ -230,7 +230,7 @@ func showStatus(c *gin.Context) {
 					font-size: 13px;
 					line-height: 1.1;
 					margin: 8px 0 16px 0;
-					overflow-x: auto;
+					overflow-x: clip;
 					white-space: pre;
 				}
 
