@@ -453,7 +453,11 @@ func makeDiskStatusHTML(body []byte) string {
 	var result strings.Builder
 	for _, disk := range disks.Array() {
 		label := disk.Get("mountpoint").String()
-		if device := disk.Get("device").String(); device != "" {
+		if !shouldShowDisk(label, disk.Get("fstype").String()) {
+			continue
+		}
+
+		if device := disk.Get("device").String(); device != "" && device != label {
 			label += " (" + device + ")"
 		}
 
@@ -474,7 +478,33 @@ func makeDiskStatusHTML(body []byte) string {
 		)
 	}
 
+	if result.Len() == 0 {
+		return "<p>DISK: N/A</p>"
+	}
+
 	return result.String()
+}
+
+func shouldShowDisk(mountpoint, fstype string) bool {
+	if mountpoint == "" {
+		return false
+	}
+	if mountpoint == "/" {
+		return true
+	}
+
+	switch strings.ToLower(fstype) {
+	case "squashfs", "tmpfs", "devtmpfs", "ramfs", "proc", "procfs", "sysfs", "devfs", "devpts", "cgroup", "cgroup2":
+		return false
+	}
+
+	for _, excluded := range []string{"/boot", "/efi", "/tmp", "/var/tmp", "/run", "/var/run", "/dev", "/proc", "/sys"} {
+		if mountpoint == excluded || strings.HasPrefix(mountpoint, excluded+"/") {
+			return false
+		}
+	}
+
+	return true
 }
 
 func formatDiskBytes(bytes uint64) string {

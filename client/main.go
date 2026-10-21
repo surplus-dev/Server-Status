@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -152,9 +153,10 @@ func collectDisks() ([]map[string]any, error) {
 		return nil, err
 	}
 
+	rootKey := diskMountpointKey(rootPath, runtime.GOOS)
 	hasRoot := false
 	for _, partition := range partitions {
-		if partition.Mountpoint == rootPath {
+		if diskMountpointKey(partition.Mountpoint, runtime.GOOS) == rootKey {
 			hasRoot = true
 			break
 		}
@@ -170,14 +172,11 @@ func collectDisks() ([]map[string]any, error) {
 	disks := make([]map[string]any, 0, len(partitions))
 	seen := make(map[string]bool)
 	for _, partition := range partitions {
-		// Snap package images do not represent available storage.
-		if partition.Fstype == "squashfs" && partition.Mountpoint != rootPath {
+		mountpointKey := diskMountpointKey(partition.Mountpoint, runtime.GOOS)
+		if partition.Mountpoint == "" || seen[mountpointKey] {
 			continue
 		}
-		if partition.Mountpoint == "" || seen[partition.Mountpoint] {
-			continue
-		}
-		seen[partition.Mountpoint] = true
+		seen[mountpointKey] = true
 
 		metric := map[string]any{
 			"mountpoint": partition.Mountpoint,
@@ -203,6 +202,17 @@ func collectDisks() ([]map[string]any, error) {
 	}
 
 	return disks, nil
+}
+
+func diskMountpointKey(mountpoint, goos string) string {
+	if goos == "windows" {
+		// Windows reports drive roots as both "C:" and `C:\`.
+		mountpoint = strings.ReplaceAll(mountpoint, "/", `\`)
+		mountpoint = strings.TrimRight(mountpoint, `\`)
+		return strings.ToLower(mountpoint)
+	}
+
+	return mountpoint
 }
 
 func collectGPUs() ([]map[string]any, error) {
