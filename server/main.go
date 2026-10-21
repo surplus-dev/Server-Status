@@ -387,6 +387,8 @@ func showStatus(c *gin.Context) {
 			currentGPUs,
 		)
 
+		diskStatusHTML := makeDiskStatusHTML(body)
+
 		gpuGraphsHTML := makeGPUGraphsHTML(
 			gpuIndexes,
 			history,
@@ -404,6 +406,7 @@ func showStatus(c *gin.Context) {
 			<p>RAM: %s</p>
 
 			%s
+			%s
 
 			<p>마지막 수신: %s</p>
 
@@ -420,6 +423,7 @@ func showStatus(c *gin.Context) {
 			html.EscapeString(status),
 			cpu,
 			html.EscapeString(memoryText),
+			diskStatusHTML,
 			gpuStatusHTML,
 			html.EscapeString(lastSeenText),
 			html.EscapeString(cpuPlot),
@@ -438,6 +442,51 @@ func showStatus(c *gin.Context) {
 		"text/html; charset=utf-8",
 		[]byte(htmlText.String()),
 	)
+}
+
+func makeDiskStatusHTML(body []byte) string {
+	disks := gjson.GetBytes(body, "disks")
+	if !disks.IsArray() || len(disks.Array()) == 0 {
+		return "<p>DISK: N/A</p>"
+	}
+
+	var result strings.Builder
+	for _, disk := range disks.Array() {
+		label := disk.Get("mountpoint").String()
+		if device := disk.Get("device").String(); device != "" {
+			label += " (" + device + ")"
+		}
+
+		fmt.Fprintf(&result, "<h3>DISK %s</h3>", html.EscapeString(label))
+
+		if disk.Get("error").String() != "" || disk.Get("total_bytes").Uint() == 0 || !disk.Get("free_bytes").Exists() {
+			result.WriteString("<p>남은 용량: N/A (수집 실패)</p>")
+			continue
+		}
+
+		fmt.Fprintf(
+			&result,
+			"<p>남은 용량: %s / 전체 %s</p><p>사용 용량: %s (%.1f%%)</p>",
+			formatDiskBytes(disk.Get("free_bytes").Uint()),
+			formatDiskBytes(disk.Get("total_bytes").Uint()),
+			formatDiskBytes(disk.Get("used_bytes").Uint()),
+			disk.Get("used_percent").Float(),
+		)
+	}
+
+	return result.String()
+}
+
+func formatDiskBytes(bytes uint64) string {
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+	value := float64(bytes)
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+
+	return fmt.Sprintf("%.1f %s", value, units[unit])
 }
 
 func parseCurrentGPUs(body []byte) map[int]gpuMetric {

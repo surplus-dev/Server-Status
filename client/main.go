@@ -7,11 +7,14 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
@@ -26,27 +29,27 @@ var client = &http.Client{
 }
 
 func initJsonOpen() {
-    jsonFile := "set.json"
-    
-    jsonValue, err := os.ReadFile(jsonFile)
-    if err != nil {
-        fmt.Println(err)
-    }
+	jsonFile := "set.json"
 
-    config := map[string]string{}
+	jsonValue, err := os.ReadFile(jsonFile)
+	if err != nil {
+		fmt.Println(err)
+	}
 
-    err = json.Unmarshal(jsonValue, &config)
-    if err != nil {
-        fmt.Println(err)
-    }
+	config := map[string]string{}
 
-    statusURL = config["statusURL"]
-    serverID = config["serverID"]
-    apiToken = config["token"]
+	err = json.Unmarshal(jsonValue, &config)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	statusURL = config["statusURL"]
+	serverID = config["serverID"]
+	apiToken = config["token"]
 }
 
 func main() {
-    initJsonOpen()
+	initJsonOpen()
 
 	for {
 		if err := sendMetrics(); err != nil {
@@ -118,6 +121,14 @@ func collectMetrics() (map[string]any, error) {
 		"memory_total_mb": memory.Total / 1024 / 1024,
 	}
 
+	disks, err := collectDisks()
+	if err != nil {
+		metrics["disk_error"] = err.Error()
+		metrics["disks"] = []map[string]any{}
+	} else {
+		metrics["disks"] = disks
+	}
+
 	gpus, err := collectGPUs()
 	if err != nil {
 		metrics["gpu_error"] = err.Error()
@@ -127,6 +138,71 @@ func collectMetrics() (map[string]any, error) {
 	}
 
 	return metrics, nil
+}
+
+func collectDisks() ([]map[string]any, error) {
+	partitions, err := disk.Partitions(false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Containers may omit the root filesystem from physical partitions.
+	rootPath, err := filepath.Abs(string(os.PathSeparator))
+	if err != nil {
+		return nil, err
+	}
+
+	hasRoot := false
+	for _, partition := range partitions {
+		if partition.Mountpoint == rootPath {
+			hasRoot = true
+			break
+		}
+	}
+	if !hasRoot {
+		partitions = append(partitions, disk.PartitionStat{Mountpoint: rootPath})
+	}
+
+	sort.Slice(partitions, func(i, j int) bool {
+		return partitions[i].Mountpoint < partitions[j].Mountpoint
+	})
+
+	disks := make([]map[string]any, 0, len(partitions))
+	seen := make(map[string]bool)
+	for _, partition := range partitions {
+		// Snap package images do not represent available storage.
+		if partition.Fstype == "squashfs" && partition.Mountpoint != rootPath {
+			continue
+		}
+		if partition.Mountpoint == "" || seen[partition.Mountpoint] {
+			continue
+		}
+		seen[partition.Mountpoint] = true
+
+		metric := map[string]any{
+			"mountpoint": partition.Mountpoint,
+			"device":     partition.Device,
+			"fstype":     partition.Fstype,
+		}
+
+		usage, err := disk.Usage(partition.Mountpoint)
+		if err != nil {
+			metric["error"] = err.Error()
+		} else {
+			if usage.Total == 0 {
+				continue
+			}
+			metric["fstype"] = usage.Fstype
+			metric["total_bytes"] = usage.Total
+			metric["used_bytes"] = usage.Used
+			metric["free_bytes"] = usage.Free
+			metric["used_percent"] = usage.UsedPercent
+		}
+
+		disks = append(disks, metric)
+	}
+
+	return disks, nil
 }
 
 func collectGPUs() ([]map[string]any, error) {
