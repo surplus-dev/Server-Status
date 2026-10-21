@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +53,48 @@ func TestCollectDisksIncludesNetworkMounts(t *testing.T) {
 			}
 			t.Fatalf("network mount %s was not collected: %+v", mountpoint, disks)
 		})
+	}
+}
+
+func TestCollectDisksSkipsFileMounts(t *testing.T) {
+	dir := t.TempDir()
+	filePaths := []string{filepath.Join(dir, "nvidia-smi"), filepath.Join(dir, "nvidia_icd.json")}
+	dirPaths := []string{filepath.Join(dir, "network-data"), filepath.Join(dir, "data.v1")}
+	var mountinfo strings.Builder
+	for i, filePath := range filePaths {
+		if err := os.WriteFile(filePath, []byte("driver"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&mountinfo, "%d 1 259:2 /usr/bin/driver %s rw - ext4 /dev/nvme0n1p2 rw\n", 100+i, filePath)
+	}
+	for i, dirPath := range dirPaths {
+		if err := os.Mkdir(dirPath, 0755); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&mountinfo, "%d 1 0:50 / %s rw - nfs4 192.0.2.10:/export/data rw\n", 200+i, dirPath)
+	}
+	fixture := filepath.Join(dir, "mountinfo")
+	if err := os.WriteFile(fixture, []byte(mountinfo.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOST_PROC_MOUNTINFO", fixture)
+
+	disks, err := collectDisks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	collected := make(map[string]bool)
+	for _, metric := range disks {
+		collected[metric["mountpoint"].(string)] = true
+	}
+	for _, filePath := range filePaths {
+		if collected[filePath] {
+			t.Errorf("file mount collected as disk: %s", filePath)
+		}
+	}
+	for _, dirPath := range dirPaths {
+		if !collected[dirPath] {
+			t.Errorf("directory mount missing: %s", dirPath)
+		}
 	}
 }

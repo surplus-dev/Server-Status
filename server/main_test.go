@@ -17,9 +17,15 @@ func TestMakeDiskStatusHTMLFiltersDisks(t *testing.T) {
 		{"/", "tmpfs", true},
 		{"/", "squashfs", true},
 		{"/data", "ext4", true},
+		{"/data.v1", "ext4", true},
+		{"/usr", "ext4", true},
+		{"/usr/lib", "ext4", true},
+		{"/etc", "ext4", true},
 		{"/mnt/data", "nfs", true},
 		{"/mnt/data", "nfs4", true},
 		{"/mnt/share", "cifs", true},
+		{"/usr/share/models", "nfs4", true},
+		{"/usr/lib/network-data", "cifs", true},
 		{"/mnt/usb", "vfat", true},
 		{"/boot-data", "ext4", true},
 		{"/tmp-data", "ext4", true},
@@ -218,5 +224,55 @@ func TestMakeDiskStatusHTMLHidesNetworkAddresses(t *testing.T) {
 				t.Errorf("network disk must show only its mountpoint: %s", got)
 			}
 		})
+	}
+}
+
+func TestMakeDiskStatusHTMLSkipsContainerSystemMounts(t *testing.T) {
+	mounts := []struct {
+		mountpoint string
+		device     string
+		fstype     string
+	}{
+		{"/", "overlay", "overlay"},
+		{"/mnt/data_3e6f6", "192.0.2.10:/export/data", "nfs4"},
+		{"/etc/vulkan/icd.d/nvidia_icd.json", "/dev/nvme0n1p2", "ext4"},
+		{"/etc/vulkan/implicit_layer.d/nvidia_layers.json", "/dev/nvme0n1p2", "ext4"},
+		{"/etc/hosts", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/bin/nvidia-smi", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/bin/nvidia-cuda-mps-control", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/lib/firmware/nvidia/595.80/gsp_ga10x.bin", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/lib/x86_64-linux-gnu/libcuda.so.595.80", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/lib/x86_64-linux-gnu/vdpau/libvdpau_nvidia.so.595.80", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/lib/xorg/modules/drivers/nvidia_drv.so", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/lib64/libnvidia-ml.so.1", "/dev/nvme0n1p2", "ext4"},
+		{"/lib/x86_64-linux-gnu/libcuda.so.1", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/share/egl/egl_external_platform.d/10_nvidia_wayland.json", "/dev/nvme0n1p2", "ext4"},
+		{"/usr/share/nvidia/nvoptix.bin", "/dev/nvme0n1p2", "ext4"},
+	}
+	disks := make([]map[string]any, 0, len(mounts))
+	for _, mount := range mounts {
+		disks = append(disks, map[string]any{
+			"mountpoint":  mount.mountpoint,
+			"device":      mount.device,
+			"fstype":      mount.fstype,
+			"total_bytes": 1024,
+			"free_bytes":  512,
+		})
+	}
+	body, err := json.Marshal(map[string]any{"disks": disks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := makeDiskStatusHTML(body)
+	if count := strings.Count(got, "<h3>DISK "); count != 2 {
+		t.Errorf("disk count = %d; want root and network storage only", count)
+	}
+	if !strings.Contains(got, "<h3>DISK / (overlay)</h3>") || !strings.Contains(got, "<h3>DISK /mnt/data_3e6f6</h3>") {
+		t.Error("root or network storage missing")
+	}
+	for _, hidden := range []string{"nvidia", "libcuda", "192.0.2.10", "/dev/nvme0n1p2"} {
+		if strings.Contains(got, hidden) {
+			t.Errorf("unexpected system mount or network address in HTML: %s", hidden)
+		}
 	}
 }

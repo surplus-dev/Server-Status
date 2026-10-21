@@ -454,7 +454,7 @@ func makeDiskStatusHTML(body []byte) string {
 	seen := make(map[string]int)
 	for _, disk := range disks.Array() {
 		mountpoint := disk.Get("mountpoint").String()
-		if !shouldShowDisk(mountpoint, disk.Get("fstype").String()) {
+		if !shouldShowDisk(mountpoint, disk.Get("device").String(), disk.Get("fstype").String()) {
 			continue
 		}
 
@@ -530,7 +530,7 @@ func hasDiskUsage(disk gjson.Result) bool {
 	return disk.Get("error").String() == "" && disk.Get("total_bytes").Uint() > 0 && disk.Get("free_bytes").Exists()
 }
 
-func shouldShowDisk(mountpoint, fstype string) bool {
+func shouldShowDisk(mountpoint, device, fstype string) bool {
 	if mountpoint == "" {
 		return false
 	}
@@ -546,6 +546,15 @@ func shouldShowDisk(mountpoint, fstype string) bool {
 	for _, excluded := range []string{"/boot", "/efi", "/tmp", "/var/tmp", "/run", "/var/run", "/dev", "/proc", "/sys"} {
 		if mountpoint == excluded || strings.HasPrefix(mountpoint, excluded+"/") {
 			return false
+		}
+	}
+
+	// Older clients include local system files injected by container runtimes.
+	if !isNetworkDisk(device, fstype) {
+		for _, systemDir := range []string{"/etc", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib32", "/usr/lib64", "/usr/libexec", "/usr/share"} {
+			if strings.HasPrefix(mountpoint, systemDir+"/") {
+				return false
+			}
 		}
 	}
 

@@ -179,6 +179,11 @@ func collectDisks() ([]map[string]any, error) {
 		}
 		seen[mountpointKey] = true
 
+		// Container runtimes also mount individual driver and configuration files.
+		if info, err := os.Stat(partition.Mountpoint); err == nil && !info.IsDir() {
+			continue
+		}
+
 		metric := map[string]any{
 			"mountpoint": partition.Mountpoint,
 			"device":     partition.Device,
