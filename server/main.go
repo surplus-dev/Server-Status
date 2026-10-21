@@ -450,20 +450,36 @@ func makeDiskStatusHTML(body []byte) string {
 		return "<p>DISK: N/A</p>"
 	}
 
-	var result strings.Builder
+	var currentDisks []gjson.Result
+	seen := make(map[string]int)
 	for _, disk := range disks.Array() {
-		label := disk.Get("mountpoint").String()
-		if !shouldShowDisk(label, disk.Get("fstype").String()) {
+		mountpoint := disk.Get("mountpoint").String()
+		if !shouldShowDisk(mountpoint, disk.Get("fstype").String()) {
 			continue
 		}
 
-		if device := disk.Get("device").String(); device != "" && device != label {
+		key := diskMountpointKey(mountpoint)
+		if index, exists := seen[key]; exists {
+			if !hasDiskUsage(currentDisks[index]) && hasDiskUsage(disk) {
+				currentDisks[index] = disk
+			}
+			continue
+		}
+		seen[key] = len(currentDisks)
+		currentDisks = append(currentDisks, disk)
+	}
+
+	var result strings.Builder
+	for _, disk := range currentDisks {
+		label := disk.Get("mountpoint").String()
+		device := disk.Get("device").String()
+		if device != "" && !isNetworkDisk(device, disk.Get("fstype").String()) && diskMountpointKey(device) != diskMountpointKey(label) {
 			label += " (" + device + ")"
 		}
 
 		fmt.Fprintf(&result, "<h3>DISK %s</h3>", html.EscapeString(label))
 
-		if disk.Get("error").String() != "" || disk.Get("total_bytes").Uint() == 0 || !disk.Get("free_bytes").Exists() {
+		if !hasDiskUsage(disk) {
 			result.WriteString("<p>남은 용량: N/A (수집 실패)</p>")
 			continue
 		}
@@ -483,6 +499,35 @@ func makeDiskStatusHTML(body []byte) string {
 	}
 
 	return result.String()
+}
+
+func diskMountpointKey(mountpoint string) string {
+	if isWindowsDrivePath(mountpoint) || strings.HasPrefix(mountpoint, `\\`) {
+		// Normalize client Windows paths even when the server runs on Linux.
+		mountpoint = strings.ReplaceAll(mountpoint, "/", `\`)
+		return strings.ToLower(strings.TrimRight(mountpoint, `\`))
+	}
+
+	return mountpoint
+}
+
+func isWindowsDrivePath(path string) bool {
+	return len(path) >= 2 && path[1] == ':' &&
+		((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'))
+}
+
+func isNetworkDisk(device, fstype string) bool {
+	switch strings.ToLower(fstype) {
+	case "nfs", "nfs4", "cifs", "smbfs", "smb3", "sshfs", "fuse.sshfs":
+		return true
+	}
+
+	return strings.HasPrefix(device, "//") || strings.HasPrefix(device, `\\`) ||
+		(strings.Contains(device, ":") && !isWindowsDrivePath(device))
+}
+
+func hasDiskUsage(disk gjson.Result) bool {
+	return disk.Get("error").String() == "" && disk.Get("total_bytes").Uint() > 0 && disk.Get("free_bytes").Exists()
 }
 
 func shouldShowDisk(mountpoint, fstype string) bool {

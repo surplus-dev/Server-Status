@@ -142,7 +142,8 @@ func collectMetrics() (map[string]any, error) {
 }
 
 func collectDisks() ([]map[string]any, error) {
-	partitions, err := disk.Partitions(false)
+	// Include network and container mounts; the server filters display-only entries.
+	partitions, err := disk.Partitions(true)
 	if err != nil {
 		return nil, err
 	}
